@@ -51,10 +51,13 @@ rD <- rsDriver(browser = "firefox", port = 4445L, extraCapabilities = fprof)
 
 remDr <- rD$client
 
+# set timeout
+remDr$setTimeout(type = "implicit", milliseconds = 3000)
+remDr$setTimeout(type = "page load", milliseconds = 5000)
+
 
 # navigate to target page
 remDr$navigate(target_url)
-Sys.sleep(1)
 
 
 # enter PLZ and click enter
@@ -62,8 +65,6 @@ remDr$findElement('css', '#bid_postcode')$sendKeysToElement(list(
   query_values["plz"],
   key = "enter"
 ))
-
-Sys.sleep(2)
 
 
 # check for wrong redirect if no results for PLZ
@@ -76,40 +77,31 @@ if (!grepl("step-zero", remDr$getCurrentUrl())) {
 
 
 # accept cookie banner
-Sys.sleep(2)
 try(remDr$findElement("css", elements["cookie_accept"])$clickElement(), TRUE)
 
 
 # Chooseone of three Repetition Button
 remDr$findElement(value = elements["repetition_choice"])$clickElement()
-Sys.sleep(1)
 
 # Move one page down to get the next fields visible
 element_body <- remDr$findElement("css", "body")
 
 element_body$sendKeysToElement(list(key = "page_down"))
 
-Sys.sleep(1)
-
 
 # Choose duration
 remDr$findElement(value = elements["duration_field"])$clickElement()
 remDr$findElement(value = elements["duration_input"])$clickElement()
-Sys.sleep(1)
 
 # Move one page down to get the next fields visible
 element_body$sendKeysToElement(list(key = "page_down"))
-Sys.sleep(1)
 
 # Choose date
 remDr$findElement(value = elements["date_field"])$clickElement()
 remDr$findElement(value = elements["date_input"])$clickElement()
-Sys.sleep(1)
 
 # click to show results
 remDr$findElement(value = elements["show_results"])$clickElement()
-
-Sys.sleep(5)
 
 
 # Extract number of results from html page
@@ -137,8 +129,6 @@ while (length(elements_profiles) < number_cleaners) {
   # Scroll to the bottom of the page and wait for profile elements to load
   element_body$sendKeysToElement(list(key = "end"))
 
-  Sys.sleep(2)
-
   # Update the list of elements
   elements_profiles <- remDr$findElements(value = elements["profile_rating"])
 }
@@ -154,7 +144,6 @@ if (file.exists(file_output)) file.remove(file_output)
 
 # Click the profile review button to open the profile popup
 elements_profiles[[1]]$clickElement()
-Sys.sleep(2)
 
 
 all_profiles <- lapply(seq_along(elements_profiles), function(x) {
