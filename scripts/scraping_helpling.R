@@ -10,37 +10,46 @@ source("scripts/scraping_fcts.R")
 # set variables to change for the search query
 query_values <- list(
   plz = c(
+    "Düsseldorf" = "40210",
+    "Stuttgart" = "70174",
+    "Leipzig" = "04315",
+    "Dortmund" = "44137",
+    "Bremen" = "28211",
+    "Essen" = "45127",
+    "Dresden" = "01067",
+    "Nürnberg" = "90403",
+    "Hannover" = "30159",
+    "Duisburg" = "47051",
+    "Magdeburg" = "39104",
     "Hamburg - Mitte" = "20095",
     "Hamburg - Nord" = "22415",
     "Hamburg - Ost" = "22149",
     "Hamburg - Süd" = "21073",
     "Hamburg - West" = "22765",
-    "Berlin - Mitte" = "10117",
-    "Berlin - Nord" = "13156",
-    "Berlin - Ost" = "12683",
-    "Berlin - Süd" = "12107",
-    "Berlin - West" = "14052",
     "München - Mitte" = "80331",
     "München - Nord" = "80937",
     "München - Ost" = "81825",
     "München - Süd" = "81547",
     "München - West" = "81245",
-    "Stuttgart" = "70174",
-    "Leipzig" = "04315",
-    "Bremen" = "28211"
+    "Köln - Mitte" = "50667",
+    "Köln - Nord" = "50737",
+    "Köln - Ost" = "51109",
+    "Köln - Süd" = "50999",
+    "Köln - West" = "50858",
+    "Frankfurt - Mitte" = "60313",
+    "Frankfurt - Nord" = "60433",
+    "Frankfurt - Ost" = "60386",
+    "Frankfurt - Süd" = "60528",
+    "Frankfurt - West" = "65929",
+    "Berlin - Mitte" = "10117",
+    "Berlin - Nord" = "13156",
+    "Berlin - Ost" = "12683",
+    "Berlin - Süd" = "12107",
+    "Berlin - West" = "14052"
   ),
   frequency = "Einmalig",
   duration = "2 Stunden",
   date = "22"
-)
-
-plz_done <- c(
-  "München - Mitte" = "80331",
-  "Hamburg - Mitte" = "20095",
-  "Hamburg - Nord" = "22415",
-  "Leipzig" = "04315",
-  "Bremen" = "28211",
-  "Stuttgart" = "70174"
 )
 
 # define constant objects for scraping
@@ -48,6 +57,7 @@ target_url <- "https://www.helpling.de/"
 
 elements <- c(
   cookie_accept = "#cookiescript_accept",
+  popup_rabatt = "//button[contains(@class, 'CloseButton')]",
   popup_close = "//button[@title = 'Close']",
   frequency_choice = paste0(
     "//div[contains(text(),'",
@@ -71,6 +81,26 @@ elements <- c(
   profile_close = "//div[@data-testid='CandidateModal']/div/div/div/div"
 )
 
+js_block_popup <- "
+(function() {
+  const observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+      mutation.addedNodes.forEach(function(node) {
+        if (node.nodeType === 1 && node.classList.contains('torboy-campaign')) {
+          node.remove();
+        }
+      });
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // fallback: hide via CSS
+  const style = document.createElement('style');
+  style.innerHTML = '.torboy-campaign.Campaign.CampaignType--popup { display: none !important; }';
+  document.head.appendChild(style);
+})();
+"
+
 # define user agent by creating firefox profile
 user_agents <- c(
   # iPhone with iOS 17 (Latest):
@@ -88,7 +118,7 @@ user_agents <- c(
 )
 
 fprof <- makeFirefoxProfile(list(
-  general.useragent.override = user_agents[1],
+  general.useragent.override = user_agents[2],
   browser.download.dir = "C:/Users/munnes/Documents/R_selenium_firefox"
 ))
 
@@ -121,19 +151,21 @@ try(
   silent = TRUE
 )
 
-# Wait and close Rabatt popup
-Sys.sleep(10)
-try(
-  remDr$findElement(
-    "xpath",
-    "//button[contains(@class, 'CloseButton')]"
-  )$clickElement(),
-  silent = TRUE
-)
 
-# for (plz in query_values[["plz"]][!(query_values[["plz"]] %in% plz_done)]) {
-for (plz in c("22415")) {
+# get list of already done plz (from previous runs; don't scrape again)
+plz_done <-
+  list.files("data/scraping/helpling/") |>
+  str_extract("\\d{5}") |>
+  unique()
+
+# for (plz in c("22415")) {
+for (plz in query_values[["plz"]][!(query_values[["plz"]] %in% plz_done)]) {
   query_date <- format(Sys.time(), "%Y%m%d_%H%M")
+
+  # navigate to target page
+  remDr$navigate(target_url)
+
+  remDr$executeScript(js_block_popup)
 
   # enter PLZ and click enter
   message("Enter PLZ: ", plz, " and click enter.")
@@ -150,16 +182,18 @@ for (plz in c("22415")) {
   #   message("Redirect to correct page.")
   # }
 
-  message("Wait 7 seconds for page to load.")
-  Sys.sleep(7)
+  message("Wait for page to load (10 seconds).")
+  Sys.sleep(10)
+
+  remDr$executeScript(js_block_popup)
 
   # Close popup explanation
   message("Close popup explanation.")
   remDr$findElement("xpath", "//div[text() = 'Überspringen']")$clickElement()
 
-  Sys.sleep(2)
+  Sys.sleep(3)
 
-  # Choos eone of three frequency Button
+  # Choos one of three frequency Button
   message("Choose frequency.")
   remDr$findElement(value = elements["frequency_choice"])$clickElement()
 
@@ -170,6 +204,9 @@ for (plz in c("22415")) {
   # Move to next page
   remDr$findElement("xpath", "//div[text() = 'Fortfahren']")$clickElement()
 
+  Sys.sleep(2)
+  remDr$executeScript(js_block_popup)
+
   # Move to next Month
   # remDr$findElement("xpath", "//*[@id='arrow-left']")$clickElement()
 
@@ -178,6 +215,9 @@ for (plz in c("22415")) {
 
   # Move to next page (keep time (12:00) constant)
   remDr$findElement("xpath", "//div[text() = 'Fortfahren']")$clickElement()
+
+  Sys.sleep(2)
+  remDr$executeScript(js_block_popup)
 
   # Pick duration
   remDr$findElement(value = elements["duration_input"])$clickElement()
@@ -206,7 +246,7 @@ for (plz in c("22415")) {
   # Extract number of results from html page
   number_cleaners <- remDr$findElement(
     "xpath",
-    elements["cleaners"] # "//div[contains(text(), 'Reinigungskräfte verfügbar')]"
+    elements["cleaners"]
   )$getElementText() |>
     str_extract("\\d+") |>
     as.integer()
@@ -251,7 +291,7 @@ for (plz in c("22415")) {
 
       # 2.1 open profile page (try twice, otherwhise skip)
       open_success <- FALSE
-      for (try_i in seq_len(2)) {
+      for (try_i in seq_len(3)) {
         # 1) attempt to click
         try(profile_detail_button$clickElement(), silent = TRUE)
         Sys.sleep(sample(c(1, 1.5, 2), 1))
@@ -268,7 +308,7 @@ for (plz in c("22415")) {
         if (open_success) {
           # we broke through!
           break
-        } else if (try_i < 2) {
+        } else if (try_i < 3) {
           message(sprintf("⚠️ Open attempt %d failed, retrying...", try_i))
         }
       }
@@ -371,15 +411,12 @@ for (plz in c("22415")) {
       # 2.3.3 add review data to df
       df_reviews_all <- bind_rows(df_reviews_all, df_reviews)
 
-      message(
-        "Profile ",
+      message(sprintf(
+        "Profile %d: %s with %d reviews",
         index,
-        ": ",
         df_profile$name,
-        " with ",
-        nrow(df_reviews),
-        " reviews"
-      )
+        nrow(df_reviews)
+      ))
 
       # 2.4 add id of new profile to seen ids and increment index
       seen_ids <- c(seen_ids, profile_id)
@@ -395,12 +432,12 @@ for (plz in c("22415")) {
     }
 
     # 4. scroll down to load new profiles
-    message(
+    message(sprintf(
+      "%d Profiles of %d scraped, scroll down for more ...",
       length(seen_ids),
-      " Profiles of ",
-      number_cleaners,
-      " scraped, scroll down for more ..."
-    )
+      number_cleaners
+    ))
+
     element_body <- remDr$findElement("css", "body")
     element_body$sendKeysToElement(list(key = "end"))
     Sys.sleep(3)
@@ -424,12 +461,6 @@ for (plz in c("22415")) {
         ),
         row.names = FALSE
       )
-  }
-
-  # 6. go back
-  for (i in 1:5) {
-    remDr$goBack()
-    Sys.sleep(sample(c(0.5, 1, 1.5), 1))
   }
 }
 
