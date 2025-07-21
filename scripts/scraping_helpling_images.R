@@ -1,14 +1,14 @@
-profiles_all <- read.csv2(
-  "data/helpling/scraping/profiles_all.csv",
+profiles_clean <- read.csv2(
+  "data/helpling/profiles_clean.csv",
   stringsAsFactors = FALSE
 )
 
 
 # get image urls (without default avatars)
-file_names <- unique(profiles_all$img_file[profiles_all$img_picture])
+file_names <- unique(profiles_clean$img_file[profiles_clean$img_picture])
 
 for (file in file_names) {
-  file_path <- paste0("data/scraping/helpling/images/", file)
+  file_path <- paste0("data/helpling/images/", file)
 
   message("Process image: ", file, appendLF = FALSE)
 
@@ -21,7 +21,7 @@ for (file in file_names) {
     {
       download.file(
         url = url,
-        destfile = paste0("data/scraping/helpling/images/", file),
+        destfile = paste0("data/helpling/images/", file),
         mode = "wb"
       )
 

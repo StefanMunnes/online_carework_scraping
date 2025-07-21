@@ -118,7 +118,7 @@ user_agents <- c(
 )
 
 fprof <- makeFirefoxProfile(list(
-  general.useragent.override = user_agents[2],
+  general.useragent.override = user_agents[3],
   browser.download.dir = "C:/Users/munnes/Documents/R_selenium_firefox"
 ))
 
@@ -154,11 +154,11 @@ try(
 
 # get list of already done plz (from previous runs; don't scrape again)
 plz_done <-
-  list.files("data/scraping/helpling/") |>
+  list.files("data/helpling/") |>
   str_extract("\\d{5}") |>
   unique()
 
-# for (plz in c("22415")) {
+# loop over plz (scrape new profiles with reviews)
 for (plz in query_values[["plz"]][!(query_values[["plz"]] %in% plz_done)]) {
   query_date <- format(Sys.time(), "%Y%m%d_%H%M")
 
@@ -454,7 +454,7 @@ for (plz in query_values[["plz"]][!(query_values[["plz"]] %in% plz_done)]) {
     dataframes[[data]] |>
       write.csv(
         file = sprintf(
-          "data/scraping/helpling/%s_%s_%s.csv",
+          "data/helpling/%s_%s_%s.csv",
           data,
           plz,
           query_date
