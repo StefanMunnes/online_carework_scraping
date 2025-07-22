@@ -25,6 +25,7 @@ base_url <- "https://www.betreut.de"
 
 login_url <- paste0(base_url, "/login")
 
+page_size <- 50
 
 elements <- c(
   cookie_accept = "#onetrust-reject-all-handler",
@@ -43,8 +44,7 @@ login_data <- readLines("data/betreut/logins.txt")
 
 # define user agent by creating firefox profile
 user_agent <- "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/135.0"
-# user_agent <- "Mozilla/5.0 (iPhone; CPU iPhone OS 8_0_8; like Mac OS X) AppleWebKit/536.13 (KHTML, like Gecko)  Chrome/50.0.2440.333 Mobile Safari/600.1"
-# Mozilla/5.0 (iPhone; CPU iPhone OS 10_3 like Mac OS X) AppleWebKit/602.1.50 (KHTML, like Gecko) CriOS/56.0.2924.75 Mobile/14E5239e Safari/602.1
+
 fprof <- makeFirefoxProfile(list(general.useragent.override = user_agent))
 
 
@@ -87,11 +87,12 @@ Sys.sleep(3)
 # start loop here
 
 search_url <- sprintf(
-  "%s/de-de/profiles?sort=bestMatch&verticalId=%s&radius=%s&geoRegionId=POSTCODE-DE-%s&max=50",
+  "%s/de-de/profiles?sort=bestMatch&verticalId=%s&radius=%s&geoRegionId=POSTCODE-DE-%s&max=%s&offset=0",
   base_url,
   query_values[["job"]][["Reinigung"]],
   query_values["radius"],
-  query_values["plz"]
+  query_values["plz"],
+  page_size
 )
 
 # define output file
@@ -106,68 +107,80 @@ file_output <- paste0(
 )
 
 
-# navigate to parametrized search page
-remDr$navigate(search_url)
-
-
-# Anzahl Anbieter:
-# Kinderbetreuung: 34.830
-# Seniorenbetreuung: 13.102
-# Reinigung: 23.388
-profiles_n <- remDr$findElement("css", ".body-3")$getElementText()[[1]] |>
-  str_extract("^[0-9.]{1,6}") |>
-  str_remove_all("\\.") |>
-  as.integer()
-
-
 # check if file allready exists, than start from last scraped page
 if (!file.exists(file_output)) {
   message("File ", file_output, " does not exist. Start from page 1.")
+
   profiles_scraped <- 0
 
-  page <- 1
-  offset <- 0
+  page_start <- 1
 } else {
   message("File ", file_output, " already exists. Start from last page.")
-  profiles_overview_all <- read_csv2(file_output)
 
-  profiles_scraped <- nrow(profiles_overview_all)
+  profiles_on_disk <- read_csv2(file_output)
 
-  page <- max(profiles_overview_all$page)
-  offset <- (page - 1) * 50
+  profiles_scraped <- nrow(profiles_on_disk)
 
-  search_url <- sub(
-    "offset=0",
-    paste0("offset=", offset),
-    search_url
-  )
-
-  remDr$navigate(search_url)
+  page_start <- max(profiles_on_disk$page) + 1
 }
 
 
+# navigate to parametrized search page
+remDr$navigate(search_url)
+
 pages_list <- remDr$findElements("css", ".step")
-last_page <- pages_list[[length(pages_list)]]$getElementText()[[1]] |>
+page_last <- pages_list[[length(pages_list)]]$getElementText()[[1]] |>
   as.integer()
 
 
-while (page <= last_page) {
-  message("Page: ", page, " from ", last_page, ": ", appendLF = FALSE)
+for (page in seq(page_start, page_last)) {
+  message("Open page: ", page, " from ", page_last, ": ", appendLF = FALSE)
 
-  # Get all profile links from this page
-  profiles <- remDr$getPageSource()[[1]] |>
-    read_html() |>
-    html_elements(css = ".providerSnippet")
+  # 1. update search url with offset calculated by page number and open page
+  offset <- (page - 1) * page_size
 
-  # check if all 50 profiles loaded (if not last page), otherwise wait
-  if (length(profiles) < 50 && page < last_page) {
-    message("Not all profiles loaded. Wait 5 seconds.")
-    Sys.sleep(5)
-    profiles <- remDr$getPageSource()[[1]] |>
-      read_html() |>
-      html_elements(css = ".providerSnippet")
+  search_url <- str_replace(
+    search_url,
+    "offset=([0-9]+)",
+    paste0("offset=", offset)
+  )
+
+  remDr$navigate(search_url)
+
+  Sys.sleep(3)
+
+  # 2. check if page is loaded correctly, otherwise, wait up to 15 seconds
+
+  # 2.1 correct offset of current page URL
+  t0 <- Sys.time()
+  repeat {
+    current_url <- remDr$getCurrentUrl()[[1]]
+    if (grepl(paste0("offset=", offset), current_url)) {
+      break
+    }
+    if (as.numeric(difftime(Sys.time(), t0, units = "secs")) > 15) {
+      stop("Timed out waiting for offset=", offset)
+    }
+    Sys.sleep(0.5)
   }
 
+  # 2.2 all 50 profiles loaded (if not last page)
+  t0 <- Sys.time()
+  repeat {
+    profiles <- remDr$getPageSource()[[1]] |>
+      read_html() %>%
+      html_elements(css = ".providerSnippet")
+    if (length(profiles) >= page_size || page == page_last) {
+      break
+    }
+    if (as.numeric(difftime(Sys.time(), t0, units = "secs")) > 15) {
+      warning("Only found ", length(profiles), " profiles after ", 15, "s")
+      break
+    }
+    Sys.sleep(0.5)
+  }
+
+  # 3. get the information for all profiles from the current page
   profiles_overview_df <- data.frame(
     profile_url = profiles |>
       html_elements(".profileLink") |>
@@ -201,32 +214,24 @@ while (page <= last_page) {
     query_date = format(Sys.time(), "%Y%m%d_%H%M")
   )
 
+  # 4. write profile data to disk (append if not first page)
   readr::write_csv2(
     profiles_overview_df,
     file = file_output,
-    append = TRUE
+    col_names = page == 1,
+    append = page > 1
   )
 
   profiles_scraped <- profiles_scraped + nrow(profiles_overview_df)
 
-  message(profiles_scraped, " profiles scraped in total.")
+  message(
+    nrow(profiles_overview_df),
+    " new profiles, add up to ",
+    profiles_scraped,
+    " in total."
+  )
 
   page <- page + 1
-
-  # click next page and wait 5 secconds (to load page and b/c robots.txt)
-  remDr$findElement(using = "css", value = elements["next_page"])$clickElement()
-
-  Sys.sleep(5)
-
-  # check if next page is already loaded, otherwise wait for 4 seconds
-  offset <- remDr$getCurrentUrl()[[1]] |>
-    str_extract("offset=(\\d+)", group = 1) |>
-    as.integer()
-
-  if (offset / 50 + 1 < page) {
-    message("Next page not yet loaded. Wait 4 seconds.")
-    Sys.sleep(4)
-  }
 }
 
 
