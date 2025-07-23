@@ -54,6 +54,8 @@ rD <- rsDriver(
   phantomver = NULL,
 )
 
+Sys.sleep(5)
+
 remDr <- rD$client
 
 remDr$setTimeout(type = "implicit", milliseconds = 3000)
@@ -67,7 +69,7 @@ remDr$navigate(login_url)
 try(remDr$findElement("css", elements["cookie_accept"])$clickElement(), TRUE)
 
 
-# enter username and password
+# login and enter username and password
 remDr$findElement(
   "css",
   elements["login_username"]
@@ -82,12 +84,12 @@ remDr$findElement(value = elements["login_button"])$clickElement()
 
 Sys.sleep(3)
 
-
-# query_date <- format(Sys.time(), "%Y%m%d_%H%M")
-
+# define output files
 file_profiles <- "data/betreut/profiles.csv"
 file_reviews <- "data/betreut/reviews.csv"
+file_errors <- "data/betreut/errors.csv"
 
+# check if file already exists, if so load already scraped profile urls
 file_profiles_exists <- file.exists(file_profiles)
 
 if (file_profiles_exists) {
@@ -96,11 +98,16 @@ if (file_profiles_exists) {
   profile_urls_scraped <- read_csv2(file_profiles) |> pull(profile_url)
 
   profile_urls <- profile_urls[!(profile_urls %in% profile_urls_scraped)]
+
+  if (file.exists(file_errors)) {
+    profile_urls_errors <- read_lines(file_errors)
+    profile_urls <- profile_urls[!(profile_urls %in% profile_urls_errors)]
+  }
 }
 
-
+# loop over list of all profile urls to scrape profile and review data
 for (profile_num in seq(length(profile_urls))) {
-  message(profile_num, " of ", length(profile_urls), ".", appendLF = FALSE)
+  message(profile_num, " of ", length(profile_urls), ". ", appendLF = FALSE)
 
   profile_url <- paste0(base_url, profile_urls[profile_num])
 
@@ -111,8 +118,14 @@ for (profile_num in seq(length(profile_urls))) {
   current_url <- remDr$getCurrentUrl()[[1]] |>
     str_remove(base_url)
 
-  if (grepl("de-de/profiles", current_url)) {
-    message("Redirect to wrong page. Skip profile: ", profile_url)
+  # check if redirected to wrong page -> write to error file and skip
+  if (!grepl("source=providerSnippet", current_url)) {
+    message(
+      "Redirect to wrong page. Write to error file and skip: ",
+      profile_url
+    )
+
+    write(profile_url, file_errors, append = TRUE)
     next
   }
 
@@ -216,7 +229,7 @@ for (profile_num in seq(length(profile_urls))) {
   )
 
   message(
-    " Write profile data of ",
+    "Write profile data of ",
     profile_df$name,
     " to csv file. ",
     appendLF = FALSE
@@ -229,11 +242,18 @@ for (profile_num in seq(length(profile_urls))) {
     append = file_profiles_exists
   )
 
+  file_profiles_exists <- TRUE
+
   # get and store reviews
   reviews <- profile_html |>
     html_elements(
       css = ".MuiGrid-root.MuiGrid-container.MuiGrid-spacing-xs-1.MuiGrid-item"
     )
+
+  if (length(reviews) == 0) {
+    message("No reviews found.")
+    next
+  }
 
   reviews_df <- lapply(seq_along(reviews), function(review) {
     review_infos <- reviews[review] |> html_nodes("span") |> html_text()
@@ -261,18 +281,14 @@ for (profile_num in seq(length(profile_urls))) {
     ) |>
     filter(review_rating > 0)
 
-  if (nrow(reviews_df) > 0) {
-    message("Write ", nrow(reviews_df), " reviews to csv file.")
+  message("Write ", nrow(reviews_df), " reviews to csv file.")
 
-    write_csv2(
-      reviews_df,
-      file_reviews,
-      col_names = !file_profiles_exists,
-      append = file_profiles_exists
-    )
-  }
-
-  file_profiles_exists <- TRUE
+  write_csv2(
+    reviews_df,
+    file_reviews,
+    col_names = !file_profiles_exists,
+    append = file_profiles_exists
+  )
 }
 
 
