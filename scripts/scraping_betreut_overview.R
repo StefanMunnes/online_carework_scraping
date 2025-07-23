@@ -128,6 +128,8 @@ if (!file.exists(file_output)) {
 # navigate to parametrized search page
 remDr$navigate(search_url)
 
+Sys.sleep(5)
+
 pages_list <- remDr$findElements("css", ".step")
 page_last <- pages_list[[length(pages_list)]]$getElementText()[[1]] |>
   as.integer()
@@ -182,9 +184,17 @@ for (page in seq(page_start, page_last)) {
 
   # 3. get the information for all profiles from the current page
   profiles_overview_df <- data.frame(
-    profile_url = profiles |>
-      html_elements(".profileLink") |>
-      html_attr('href'),
+    profile_url = sapply(
+      profiles,
+      function(profile) {
+        hrefs <- profile |>
+          html_elements(".profileLink") |>
+          html_attr('href')
+
+        if (length(hrefs) == 0) NA_character_ else hrefs[1]
+      },
+      USE.NAMES = FALSE
+    ),
     name = profiles |> html_node(".name") |> html_text(),
     short_location = profiles |>
       html_node(".hidden-xs") |>
