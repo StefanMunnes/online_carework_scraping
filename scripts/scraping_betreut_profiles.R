@@ -100,7 +100,7 @@ if (file_profiles_exists) {
   profile_urls <- profile_urls[!(profile_urls %in% profile_urls_scraped)]
 
   if (file.exists(file_errors)) {
-    profile_urls_errors <- read_lines(file_errors)
+    profile_urls_errors <- read_lines(file_errors) |> str_remove(base_url)
     profile_urls <- profile_urls[!(profile_urls %in% profile_urls_errors)]
   }
 }
@@ -111,7 +111,20 @@ for (profile_num in seq(length(profile_urls))) {
 
   profile_url <- paste0(base_url, profile_urls[profile_num])
 
-  remDr$navigate(profile_url)
+  success <- tryCatch(
+    {
+      remDr$navigate(profile_url)
+      TRUE
+    },
+    error = function(e) {
+      message(" (Cannot open profile URL)")
+      FALSE
+    }
+  )
+
+  if (!success) {
+    next
+  }
 
   Sys.sleep(3)
 
